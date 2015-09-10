@@ -2,7 +2,7 @@
 augroup larval
     autocmd!
     autocmd FileType vim
-                \ let b:larval_assignment_regex = '\v\s*let\s+(%(.:)=(.{-}))\s*\=\s*(([^|]*%(\n\s*\\.*)*))'
+                \ let b:larval_assignment_regex = '\v\s*let\s+(%(.:)=(.{-}))\s*\=\s*(([^|]*%(\n\s*\\[^|]*)*))'
     autocmd FileType php
                 \ let b:larval_assignment_regex = '\v\s*(\$(\k+)).{-}\=\s*((%(.|\n){-});)'
 augroup END
@@ -14,14 +14,16 @@ augroup END
 " 4 - inner rval
 function! s:larval(val_type)
     let assignment_regex = b:larval_assignment_regex
-    let end_pos = searchpos(assignment_regex, 'ce')
-    if !end_pos[0]
-        let end_pos = searchpos(assignment_regex, 'bce')
+    let search_bounds = s:get_search_bounds(assignment_regex, 1)
+    if !(search_bounds[0][0] && s:inside_bounds(s:get_pos(), search_bounds))
+        let search_bounds = s:get_search_bounds(assignment_regex, 0)
     endif
-    if end_pos[0]
+
+    if search_bounds[0][0]
         " Copy the entire assignment
+        call cursor(search_bounds[0])
         normal! v
-        call search(assignment_regex, 'b')
+        call cursor(search_bounds[1])
         let saved_unnamed_register = @@
         normal! y
         let assignment = @@
@@ -35,6 +37,40 @@ function! s:larval(val_type)
             call search(value, 'e')
         endif
     endif
+endfunction
+
+function! s:get_search_bounds(regex, search_backwards)
+    let w = winsaveview()
+    if a:search_backwards
+        let first_flag = 'b'
+        let second_flag = 'e'
+    else
+        let first_flag = 'e'
+        let second_flag = 'b'
+    endif
+    let start = searchpos(a:regex, first_flag.'cW')
+    if start[0]
+        let end = searchpos(a:regex, second_flag.'cW')
+        call winrestview(w)
+        return [start, end]
+    endif
+    return [[0, 0], [0, 0]]
+endfunction
+
+function! s:inside_bounds(pos, bounds)
+    let pos_line = a:pos[0]
+    let pos_col = a:pos[1]
+    let start_line = a:bounds[0][0]
+    let start_col = a:bounds[0][1]
+    let end_line = a:bounds[1][0]
+    let end_col = a:bounds[1][1]
+
+    return (start_line <= pos_line && pos_line <= end_line) &&
+                \ (start_col <= pos_col && pos_col <= end_col)
+endfunction
+
+function! s:get_pos()
+    return [line('.'), col('.')]
 endfunction
 
 onoremap <silent> <Plug>LarvalAroundLval :<C-u>call <SID>larval(1)<CR>
