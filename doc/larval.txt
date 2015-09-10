@@ -1,0 +1,45 @@
+*larval.txt*    Text objects for l and r values.
+
+Author: Lucas Groenendaal <groenendaal92@gmail.com>
+
+==============================================================================
+INTRODUCTION                                             *larval-introduction*
+
+Larval.vim defines two new text objects which operate on the l and r values of
+a variable assignment.
+
+==============================================================================
+TEXT OBJECTS                          *al* *il* *ar* *ir*     *larval-objects*
+
+        Mapping  Description     ~
+>
+        al       (A)round (L)-value
+        il       (I)nner  (L)-value
+        ar       (A)round (R)-value
+        ir       (I)nner  (R)-value
+<
+
+Note that the around and inner versions of these text objects could be the
+same. In the case of vim, the `al` mapping will select the variable name and
+any existing modifier (b:, g:, ...) while the `il` mapping will select just
+the variable's name. The `ar` and `ir` mappings are the same:
+ 
+        let b:larval_assignment_regex = '\vlet (%(.:)=(\k+)) = ((.*))' ~
+            | |                     |   |                            |
+            + +-------- il ---------+   +---------- ir, ar ----------+
+            |                       |
+            +---------- al ---------+
+
+==============================================================================
+INNER WORKINGS                                         *larval-inner-workings*
+
+As hinted at by the above example, the way this plugin works is that a regex
+describing a variable assignment is stored in a buffer local variable. Within
+that regex the \1 sub-expression corresponds to the `al` text object, \2 is
+`il`, \3 is `ar`, and \4 is `ir`. The languages currently supported are:
+
+    - Vim
+    - PHP
+
+Any feedback or criticism is welcome.
+
