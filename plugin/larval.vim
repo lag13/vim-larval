@@ -2,7 +2,7 @@
 augroup larval
     autocmd!
     autocmd FileType vim
-                \ let b:larval_assignment_regex = '\v\s*let\s+(%(.:)=(.{-}))\s*\=\s*(([^|]*%(\n\s*\\[^|]*)*))'
+                \ let b:larval_assignment_regex = '\vlet\s+(%(.:)?(.{-}))\s*[+-.]?\=\s*(([^|]*%(\n\s*\\[^|]*)*))'
     autocmd FileType php
                 \ let b:larval_assignment_regex = '\v\s*(\$(\k+)).{-}\=\s*((%(.|\n){-});)'
 augroup END
@@ -16,9 +16,12 @@ function! s:larval(val_type)
     let assignment_regex = b:larval_assignment_regex
     let search_bounds = s:get_search_bounds(assignment_regex, 1)
     if !(search_bounds[0][0] && s:inside_bounds(s:get_pos(), search_bounds))
+        let search_bounds_save = search_bounds
         let search_bounds = s:get_search_bounds(assignment_regex, 0)
+        if !search_bounds[0][0]
+            let search_bounds = search_bounds_save
+        endif
     endif
-
     if search_bounds[0][0]
         " Copy the entire assignment
         call cursor(search_bounds[0])
@@ -34,7 +37,7 @@ function! s:larval(val_type)
         " Visually select the value
         if search(value, 'c')
             normal! v
-            call search(value, 'e')
+            call search(value, 'ce')
         endif
     endif
 endfunction
@@ -82,13 +85,15 @@ xnoremap <silent> <Plug>LarvalAroundRval :<C-u>call <SID>larval(3)<CR>
 onoremap <silent> <Plug>LarvalInnerRval  :<C-u>call <SID>larval(4)<CR>
 xnoremap <silent> <Plug>LarvalInnerRval  :<C-u>call <SID>larval(4)<CR>
 
-function! s:create_map(plug, around, is_lval)
-    if !hasmapto(a:plug, 'ov')
-        let lhs = (a:around ? 'a' : 'i') . (a:is_lval ? 'l' : 'r')
+function! s:create_maps(plug_around, plug_inner, is_lval)
+    if !(hasmapto(a:plug_around, 'ov') || hasmapto(a:plug_inner, 'ov'))
+        let lhs = (a:is_lval ? 'l' : 'r')
         for i in range(0, 1)
-            if mapcheck(lhs, 'o') ==# ''
-                execute "omap ".lhs." ".a:plug
-                execute "xmap ".lhs." ".a:plug
+            if mapcheck("a".lhs, 'o') ==# '' && mapcheck("i".lhs, 'o') ==# ''
+                execute "omap a".lhs." ".a:plug_around
+                execute "xmap a".lhs." ".a:plug_around
+                execute "omap i".lhs." ".a:plug_inner
+                execute "xmap i".lhs." ".a:plug_inner
                 break
             endif
             let lhs = lhs . 'v'
@@ -97,9 +102,7 @@ function! s:create_map(plug, around, is_lval)
 endfunction
 
 if !exists('g:larval_no_mappings')
-    call s:create_map('<Plug>LarvalAroundLval', 1, 1)
-    call s:create_map('<Plug>LarvalInnerLval',  0, 1)
-    call s:create_map('<Plug>LarvalAroundRval', 1, 0)
-    call s:create_map('<Plug>LarvalInnerRval',  0, 0)
+    call s:create_maps('<Plug>LarvalAroundLval', '<Plug>LarvalInnerLval', 1)
+    call s:create_maps('<Plug>LarvalAroundRval', '<Plug>LarvalInnerRval', 0)
 endif
 

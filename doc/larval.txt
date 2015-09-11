@@ -24,9 +24,9 @@ same. In the case of vim, the `al` mapping will select the variable name and
 any existing modifier (b:, g:, ...) while the `il` mapping will select just
 the variable's name. The `ar` and `ir` mappings are the same:
  
-        let b:larval_assignment_regex = '\vlet (%(.:)=(\k+)) = ((.*))' ~
-            | |                     |   |                            |
-            + +-------- il ---------+   +---------- ir, ar ----------+
+        let b:larval_assignment_regex = '\vlet (%(.:)?(\k+)) \= ((.*))' ~
+            | |                     |   |                             |
+            + +-------- il ---------+   +---------- ir, ar -----------+
             |                       |
             +---------- al ---------+
 
@@ -41,5 +41,20 @@ that regex the \1 sub-expression corresponds to the `al` text object, \2 is
     - Vim
     - PHP
 
-Any feedback or criticism is welcome.
+==============================================================================
+CONFIGURATION                                         *larval-configuration*
+
+Larval.vim will try to create mappings `al` and `il`. If either of those
+mappings are taken then it tries to create the mappings `alv` and `ilv`. The
+same pattern applies for the creation of the r-value mappings. If those
+defaults don't suit you, you can create your own mappings. For example:
+
+    omap aL <Plug>LarvalAroundLval
+    xmap aL <Plug>LarvalAroundLval
+    omap iL <Plug>LarvalInnerLval
+    xmap iL <Plug>LarvalInnerLval
+    omap aR <Plug>LarvalAroundRval
+    xmap aR <Plug>LarvalAroundRval
+    omap iR <Plug>LarvalInnerRval
+    xmap iR <Plug>LarvalInnerRval
 
