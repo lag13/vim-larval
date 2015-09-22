@@ -1,11 +1,69 @@
-" Assignment regex's
 augroup larval
     autocmd!
+    " TODO: Modify vim's rval regex to ignore the '||' operator
     autocmd FileType vim
-                \ let b:larval_assignment_regex = '\vlet\s+(%(.:)?(.{-}))\s*[+-.]?\=\s*(([^|]*%(\n\s*\\[^|]*)*))'
+                \ let b:larval_assignment_regex = '\vlet\s+(%(.:)?(.{-}))\s*[+-.]?\=\s*' |
+                \ let b:larval_rval = '\v[^|]*(\n|\|)(^\s*\\[^|]*(\n|\|))*'
     autocmd FileType php
-                \ let b:larval_assignment_regex = '\v\s*(\$(\k+)).{-}\=\s*((%(.|\n){-});)'
+                \ let b:larval_assignment_regex = '\v(\$(\k+)).{-}\=\s*((%(.|\n){-});)' |
+                \ let b:larval_assignment_preamble = '' |
+                \ let b:larval_lval = '(\$(\k+))' |
+                \ let b:larval_assignment_middle = '.{-}\=\s*' |
+                \ let b:larval_rval = '((%(.|\n){-});)'
 augroup END
+
+" A note about the structure of this program. Lval's are 'easy' because they
+" are generally just plain text which we can specify with a simple regex.
+" Rval's are tricker because we can have strings, line continuations, and
+" stuff like that. I think the best solution to get the rval working properly
+" is to specify the around rval regex and then just shrink the right side of
+" it. I don't think it's possible to specify an inner regex and make it work.
+" This is an example that would mess it up: let temp = 'hi " there'|. If we
+" had a special 'inner' regex to exclude the '|' then we would land on the
+" closing quote and s:searchpos_ignore would interpret that as a string and it
+" would try to keep searching. But if we instead did the rval search which
+" lands the cursor on the '|' then we can safely shrink it back.
+
+function! s:get_assignment_bounds(assignment_start, flags1, assignment_end, flags2)
+    let w = winsaveview()
+    let assignment_start = s:searchpos_ignore(a:assignment_start, a:flags1)
+    " Going into visual mode makes it so the cursor can go one spot past the
+    " last character
+    normal! v
+    let assignment_end = s:searchpos_ignore(a:assignment_end, a:flags2)
+    normal! v
+    call winrestview(w)
+    return [assignment_start, assignment_end]
+endfunction
+
+function! s:valid_assignment_bounds(assignment_bounds)
+    return a:assignment_bounds[0][0] && a:assignment_bounds[1][0]
+endfunction
+
+function! s:getcursor_loc()
+    return [line('.'), col('.')]
+endfunction
+
+function! s:shrink_rval(col)
+    " We assume that if our cursor was not on the newline past the last
+    " character on the current line, that our cursor is on some character that
+    " marks the end of the r-value. So move the cursor one to the left to not
+    " include the delimeter in the selection.
+    if a:col != col('$')
+        normal! h
+        " TODO: Could we have a really weird assignment where the
+        " end of assignment marker (like a ';') is on a line all
+        " by itself? Because then moving backwards with h's will
+        " eventually hit the left side of the line and will be
+        " unable to proceed. Think about this some more.
+        let saved_unnamed_register = @@
+        normal! vy
+        while match(@@, '\s') != -1
+            normal! hvy
+        endwhile
+        let @@ = saved_unnamed_register
+    endif
+endfunction
 
 " val_type c [1, 2, 3, 4] where:
 " 1 - around lval
@@ -13,51 +71,94 @@ augroup END
 " 3 - around rval
 " 4 - inner rval
 function! s:larval(val_type)
-    let assignment_regex = b:larval_assignment_regex
-    let search_bounds = s:get_search_bounds(assignment_regex, 1)
-    if !(search_bounds[0][0] && s:inside_bounds(s:get_pos(), search_bounds))
-        let search_bounds_save = search_bounds
-        let search_bounds = s:get_search_bounds(assignment_regex, 0)
-        if !search_bounds[0][0]
-            let search_bounds = search_bounds_save
+    let assignment_regex = b:larval_assignment_regex.b:larval_rval
+    let assignment_bounds = s:get_assignment_bounds(assignment_regex, 'bcW', b:larval_rval, 'eW')
+    if !(s:valid_assignment_bounds(assignment_bounds) && s:inside_bounds(s:getcursor_loc(), assignment_bounds))
+        let assignment_bounds_save = assignment_bounds
+        let assignment_bounds = s:get_assignment_bounds(assignment_regex, 'W', b:larval_rval, 'eW')
+        if !s:valid_assignment_bounds(assignment_bounds)
+            let assignment_bounds = assignment_bounds_save
         endif
     endif
-    if search_bounds[0][0]
-        " Copy the entire assignment
-        call cursor(search_bounds[0])
-        normal! v
-        call cursor(search_bounds[1])
-        let saved_unnamed_register = @@
-        normal! y
-        let assignment = @@
-        let @@ = saved_unnamed_register
-        " Pull out the value we're interested in
-        let value = '\V' . escape(substitute(assignment, assignment_regex, '\'.a:val_type, ''), '\')
-        let value = substitute(value, '\n', '\\n', 'g')
-        " Visually select the value
-        if search(value, 'c')
+    if s:valid_assignment_bounds(assignment_bounds)
+        " Move to beginning of assignment
+        call cursor(assignment_bounds[0])
+        if a:val_type >= 3
+            " 3 - 3 == 0 == around, 4 - 3 == 1 == inner
+            let is_inner = a:val_type - 3
+            " TODO: Consider modifying the get_assignment_bounds() function so
+            " it can be used here to get the start and end of the rval.
+            " Go to start of rval. We do a regular search because the rval
+            " could start as a string and our searchpos_ignore() function
+            " would bypass it.
+            let start_pos = searchpos(b:larval_assignment_regex.'\zs')
+            " Going into visual mode allows us to put the cursor on the newline past
+            " the last character. Knowing this helps us determine whether or not to
+            " shrink the rval.
             normal! v
-            call search(value, 'ce')
+            let end_pos = s:searchpos_ignore(b:larval_rval, 'e')
+            normal! v
+            if is_inner
+                call s:shrink_rval(end_pos[1])
+            endif
+            let end_pos = s:getcursor_loc()
+            call cursor(start_pos)
+            normal! v
+            call cursor(end_pos)
+        else
+            " Copy the left part of the assignment
+            normal! v
+            call search(b:larval_assignment_regex, 'eW')
+            let saved_unnamed_register = @@
+            normal! y
+            let assignment = @@
+            let @@ = saved_unnamed_register
+            " Pull out the value we're interested in
+            let value = '\V' . escape(substitute(assignment, b:larval_assignment_regex, '\'.a:val_type, ''), '\')
+            let value = substitute(value, '\n', '\\n', 'g')
+            " Visually select the value
+            if search(value, 'c')
+                normal! v
+                call search(value, 'ce')
+            endif
         endif
     endif
 endfunction
 
-function! s:get_search_bounds(regex, search_backwards)
-    let w = winsaveview()
-    if a:search_backwards
-        let first_flag = 'b'
-        let second_flag = 'e'
-    else
-        let first_flag = 'e'
-        let second_flag = 'b'
+" Like the searchpos() function but ignores search matches inside comments and
+" strings.
+function! s:searchpos_ignore(pattern, flags)
+    let first_search_pos_set = 0
+    if search(a:pattern, a:flags)
+        let cur_search_pos = s:getcursor_loc()
+        let first_search_pos = cur_search_pos
+        if !(s:inside_syntax('Comment') || s:inside_syntax('String'))
+            return cur_search_pos
+        endif
+        while search(a:pattern, a:flags)
+            let old_search_pos = cur_search_pos
+            let cur_search_pos = s:getcursor_loc()
+            if !(s:inside_syntax('Comment') || s:inside_syntax('String'))
+                return cur_search_pos
+            endif
+            " Makes sure we don't loop infinitely. first_search_pos detects if
+            " we revisit the first search location. old_search_pos and
+            " cur_search_pos detect a situation where we search with the 'c'
+            " or 'W' flag and land on something inside a string or comment but
+            " cannot move any further due to the c/W flag.
+            if old_search_pos == cur_search_pos || first_search_pos == cur_search_pos
+                call search(a:pattern, substitute(a:flags, 'c', '', 'g'))
+                if s:getcursor_loc() == cur_search_pos
+                    break
+                endif
+            endif
+        endwhile
     endif
-    let start = searchpos(a:regex, first_flag.'cW')
-    if start[0]
-        let end = searchpos(a:regex, second_flag.'cW')
-        call winrestview(w)
-        return [start, end]
-    endif
-    return [[0, 0], [0, 0]]
+    return [0, 0]
+endfunction
+
+function! s:inside_syntax(syn_name)
+    return synIDattr(synID(line('.'), col('.'), 0), 'name') =~? a:syn_name
 endfunction
 
 function! s:inside_bounds(pos, bounds)
@@ -67,13 +168,11 @@ function! s:inside_bounds(pos, bounds)
     let start_col = a:bounds[0][1]
     let end_line = a:bounds[1][0]
     let end_col = a:bounds[1][1]
-
-    return (start_line <= pos_line && pos_line <= end_line) &&
-                \ (start_col <= pos_col && pos_col <= end_col)
-endfunction
-
-function! s:get_pos()
-    return [line('.'), col('.')]
+    if start_line == end_line
+        return start_col <= pos_col && pos_col <= end_col && start_line == pos_line
+    else
+        return start_line <= pos_line && pos_line <= end_line
+    endif
 endfunction
 
 onoremap <silent> <Plug>LarvalAroundLval :<C-u>call <SID>larval(1)<CR>
