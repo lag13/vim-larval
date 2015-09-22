@@ -5,11 +5,8 @@ augroup larval
                 \ let b:larval_assignment_regex = '\vlet\s+(%(.:)?(.{-}))\s*[+-.]?\=\s*' |
                 \ let b:larval_rval = '\v[^|]*(\n|\|)(^\s*\\[^|]*(\n|\|))*'
     autocmd FileType php
-                \ let b:larval_assignment_regex = '\v(\$(\k+)).{-}\=\s*((%(.|\n){-});)' |
-                \ let b:larval_assignment_preamble = '' |
-                \ let b:larval_lval = '(\$(\k+))' |
-                \ let b:larval_assignment_middle = '.{-}\=\s*' |
-                \ let b:larval_rval = '((%(.|\n){-});)'
+                \ let b:larval_assignment_regex = '\v(\$(\k+)).{-}\s*[+-.]?\=\s*' |
+                \ let b:larval_rval = '\v(.|\n)*;'
 augroup END
 
 " A note about the structure of this program. Lval's are 'easy' because they
