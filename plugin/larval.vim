@@ -6,7 +6,7 @@ augroup larval
                 \ let b:larval_rval = '\v[^|]*(\n|\|)(^\s*\\[^|]*(\n|\|))*'
     autocmd FileType php
                 \ let b:larval_assignment_regex = '\v(\$(\k+)).{-}\s*[+-.]?\=\s*' |
-                \ let b:larval_rval = '\v(.|\n)*;'
+                \ let b:larval_rval = '\v([^;]|\n)*;'
 augroup END
 
 " A note about the structure of this program. Lval's are 'easy' because they
@@ -41,22 +41,26 @@ function! s:getcursor_loc()
     return [line('.'), col('.')]
 endfunction
 
+function! s:move_left()
+    if col('.') == 1
+        normal! ge
+    else
+        normal! h
+    endif
+endfunction
+
 function! s:shrink_rval(col)
     " We assume that if our cursor was not on the newline past the last
     " character on the current line, that our cursor is on some character that
     " marks the end of the r-value. So move the cursor one to the left to not
     " include the delimeter in the selection.
     if a:col != col('$')
-        normal! h
-        " TODO: Could we have a really weird assignment where the
-        " end of assignment marker (like a ';') is on a line all
-        " by itself? Because then moving backwards with h's will
-        " eventually hit the left side of the line and will be
-        " unable to proceed. Think about this some more.
         let saved_unnamed_register = @@
+        call s:move_left()
         normal! vy
         while match(@@, '\s') != -1
-            normal! hvy
+            call s:move_left()
+            normal! vy
         endwhile
         let @@ = saved_unnamed_register
     endif
