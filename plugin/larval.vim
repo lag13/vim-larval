@@ -1,3 +1,11 @@
+" larval.vim - Text objects for l and r values
+" Author: Lucas Groenendaal <groenendaal92@gmail.com>
+
+if exists("g:loaded_larval") || &cp || v:version < 700
+    finish
+endif
+let g:loaded_larval = 1
+
 augroup larval
     autocmd!
     " TODO: Modify vim's rval regex to ignore the '||' operator
@@ -9,25 +17,13 @@ augroup larval
                 \ let b:larval_rval = '\v([^;]|\n)*;'
 augroup END
 
-" A note about the structure of this program. Lval's are 'easy' because they
-" are generally just plain text which we can specify with a simple regex.
-" Rval's are tricker because we can have strings, line continuations, and
-" stuff like that. I think the best solution to get the rval working properly
-" is to specify the around rval regex and then just shrink the right side of
-" it. I don't think it's possible to specify an inner regex and make it work.
-" This is an example that would mess it up: let temp = 'hi " there'|. If we
-" had a special 'inner' regex to exclude the '|' then we would land on the
-" closing quote and s:searchpos_ignore would interpret that as a string and it
-" would try to keep searching. But if we instead did the rval search which
-" lands the cursor on the '|' then we can safely shrink it back.
-
 function! s:get_assignment_bounds(assignment_start, flags1, assignment_end, flags2)
     let w = winsaveview()
-    let assignment_start = s:searchpos_ignore(a:assignment_start, a:flags1)
+    let assignment_start = s:searchpos_ignore_syntax(a:assignment_start, a:flags1)
     " Going into visual mode makes it so the cursor can go one spot past the
     " last character
     normal! v
-    let assignment_end = s:searchpos_ignore(a:assignment_end, a:flags2)
+    let assignment_end = s:searchpos_ignore_syntax(a:assignment_end, a:flags2)
     normal! v
     call winrestview(w)
     return [assignment_start, assignment_end]
@@ -90,14 +86,14 @@ function! s:larval(val_type)
             " TODO: Consider modifying the get_assignment_bounds() function so
             " it can be used here to get the start and end of the rval.
             " Go to start of rval. We do a regular search because the rval
-            " could start as a string and our searchpos_ignore() function
+            " could start as a string and our searchpos_ignore_syntax() function
             " would bypass it.
             let start_pos = searchpos(b:larval_assignment_regex.'\zs')
             " Going into visual mode allows us to put the cursor on the newline past
             " the last character. Knowing this helps us determine whether or not to
             " shrink the rval.
             normal! v
-            let end_pos = s:searchpos_ignore(b:larval_rval, 'e')
+            let end_pos = s:searchpos_ignore_syntax(b:larval_rval, 'e')
             normal! v
             if is_inner
                 call s:shrink_rval(end_pos[1])
@@ -128,7 +124,7 @@ endfunction
 
 " Like the searchpos() function but ignores search matches inside comments and
 " strings.
-function! s:searchpos_ignore(pattern, flags)
+function! s:searchpos_ignore_syntax(pattern, flags)
     let first_search_pos_set = 0
     if search(a:pattern, a:flags)
         let cur_search_pos = s:getcursor_loc()
@@ -142,11 +138,13 @@ function! s:searchpos_ignore(pattern, flags)
             if !(s:inside_syntax('Comment') || s:inside_syntax('String'))
                 return cur_search_pos
             endif
-            " Makes sure we don't loop infinitely. first_search_pos detects if
-            " we revisit the first search location. old_search_pos and
-            " cur_search_pos detect a situation where we search with the 'c'
-            " or 'W' flag and land on something inside a string or comment but
-            " cannot move any further due to the c/W flag.
+            " Ensures sure we don't loop infinitely. first_search_pos prevents
+            " the situation where a we do a search() with the 'w' flag but all
+            " the search terms are inside a comment or string. old_search_pos
+            " + cur_search_pos prevents the situation where we search with the
+            " 'c' flag and land on something inside a string or comment or the
+            " 'W' flag and the last match in the buffer is a comment or string
+            " at the end of the file.
             if old_search_pos == cur_search_pos || first_search_pos == cur_search_pos
                 call search(a:pattern, substitute(a:flags, 'c', '', 'g'))
                 if s:getcursor_loc() == cur_search_pos
