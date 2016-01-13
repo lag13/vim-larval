@@ -8,10 +8,9 @@ let g:loaded_larval = 1
 
 augroup larval
     autocmd!
-    " TODO: Modify vim's rval regex to ignore the '||' operator
     autocmd FileType vim
                 \ let b:larval_assignment_regex = '\vlet\s+(%(.:)?(.{-}))\s*[+-.]?\=\s*' |
-                \ let b:larval_rval = '\v[^|]*(\n|\|)(^\s*\\[^|]*(\n|\|))*'
+                \ let b:larval_rval = '\v([^|]*(\|\|)?)*(\n|\|)(^\s*\\([^|]*(\|\|)?)*(\n|\|))*'
     autocmd FileType php
                 \ let b:larval_assignment_regex = '\v(\$(\k+)).{-}\s*[+-.]?\=\s*' |
                 \ let b:larval_rval = '\v([^;]|\n)*;'
