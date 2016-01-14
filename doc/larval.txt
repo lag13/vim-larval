@@ -133,21 +133,3 @@ above issues. It probably still has problems but I thought I'd mention it:
         OR we're at the end of the document then we break out of the loop and
         consider this is the true end of the rval.
 
-
-Right now to select the lval we:
-
-    1. Store the whole left side of the assignment into a variable using the b:larval_assignment_regex regex.
-    2. Call substitute() using the \1 or \2 to pull out the around or inner lval respectively.
-    3. Search for that value we pulled out and select it.
-
-I don't think it would come up often but we run into a problem if the variable
-name is a substring of some part of the string preceding the variable itself.
-For example if we have this assignment in vim:
-
-    let l = 'hey'
-
-Now if we do `vilv` then it will select the "l" in "let" rather than the actual
-variable "l". I think the best solution is coming up with my own little regex
-markers to indicate where the around and lvals start and end. Then when we try
-to select the lval I'll replace those markers with the \zs and \ze atoms and do
-a search() and search('e'). I'm thinking \il and \al.

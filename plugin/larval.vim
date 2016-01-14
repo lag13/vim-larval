@@ -9,10 +9,10 @@ let g:loaded_larval = 1
 augroup larval
     autocmd!
     autocmd FileType vim
-                \ let b:larval_assignment_regex = '\vlet\s+(%(.:)?(.{-}))\s*[+-.]?\=\s*' |
+                \ let b:larval_assignment_regex = '\vlet\s+\al(.:)?\il.{-}\il\al\s*[+-.]?\=\s*' |
                 \ let b:larval_rval = '\v([^|]*(\|\|)?)*(\n|\|)(^\s*\\([^|]*(\|\|)?)*(\n|\|))*'
     autocmd FileType php
-                \ let b:larval_assignment_regex = '\v(\$(\k+)).{-}\s*[+-.]?\=\s*' |
+                \ let b:larval_assignment_regex = '\v\al\$\il\k+\il\al.{-}\s*[+-.]?\=\s*' |
                 \ let b:larval_rval = '\v([^;]|\n)*;'
 augroup END
 
@@ -61,13 +61,33 @@ function! s:shrink_rval(col)
     endif
 endfunction
 
-" val_type c [1, 2, 3, 4] where:
-" 1 - around lval
-" 2 - inner lval
-" 3 - around rval
-" 4 - inner rval
+function! s:substitute_lval_markers(regex, which)
+    " With the negative lookbehind and the substitution at the end of this
+    " function, we are still able to express the vim regexes '\al' and '\il'
+    " (note \a and \i are character classes) by writing '\\al' and '\\il'.
+    " Chances are this wouldn't come up in practice (that would make for very
+    " odd looking assignments!) but doing it makes things complete and that
+    " feels good.
+    let al = '\\\@<!\\al'
+    let il = '\\\@<!\\il'
+    if a:which ==# 'both'
+        let result = substitute(a:regex, al.'\|'.il, '', 'g')
+    elseif a:which ==# 'al'
+        let no_lval_markers = substitute(a:regex, il, '', 'g')
+        let result = substitute(substitute(no_lval_markers, al, '\\zs', ''), al, '\\ze', '')
+    else
+        let no_rval_markers = substitute(a:regex, al, '', 'g')
+        let result = substitute(substitute(no_rval_markers, il, '\\zs', ''), il, '\\ze', '')
+    endif
+    return substitute(substitute(result, '\\\\al', '\\al', 'g'), '\\\\il', '\\il', 'g')
+endfunction
+
 function! s:larval(val_type)
-    let assignment_regex = b:larval_assignment_regex.b:larval_rval
+    if !(exists('b:larval_assignment_regex') || exists('b:larval_rval'))
+        return
+    endif
+    let regular_assignment_regex = s:substitute_lval_markers(b:larval_assignment_regex, 'both')
+    let assignment_regex = regular_assignment_regex.b:larval_rval
     let assignment_bounds = s:get_assignment_bounds(assignment_regex, 'bcW', b:larval_rval, 'eW')
     if !(s:valid_assignment_bounds(assignment_bounds) && s:inside_bounds(s:getcursor_loc(), assignment_bounds))
         let assignment_bounds_save = assignment_bounds
@@ -79,22 +99,22 @@ function! s:larval(val_type)
     if s:valid_assignment_bounds(assignment_bounds)
         " Move to beginning of assignment
         call cursor(assignment_bounds[0])
-        if a:val_type >= 3
-            " 3 - 3 == 0 == around, 4 - 3 == 1 == inner
-            let is_inner = a:val_type - 3
+        if a:val_type ==# 'ar' || a:val_type ==# 'ir'
             " TODO: Consider modifying the get_assignment_bounds() function so
             " it can be used here to get the start and end of the rval.
             " Go to start of rval. We do a regular search because the rval
             " could start as a string and our searchpos_ignore_syntax() function
             " would bypass it.
-            let start_pos = searchpos(b:larval_assignment_regex.'\zs')
-            " Going into visual mode allows us to put the cursor on the newline past
-            " the last character. Knowing this helps us determine whether or not to
-            " shrink the rval.
+            let start_pos = searchpos(regular_assignment_regex.'\zs')
+            " Going into visual mode allows us to put the cursor on the
+            " newline past the last character. If we did not do this and the
+            " end of the rval was the end of line, then shrinking the inner
+            " lval back would actually put us on the 2nd to last character on
+            " the line which is no good.
             normal! v
             let end_pos = s:searchpos_ignore_syntax(b:larval_rval, 'e')
             normal! v
-            if is_inner
+            if a:val_type ==# 'ir'
                 call s:shrink_rval(end_pos[1])
             endif
             let end_pos = s:getcursor_loc()
@@ -102,21 +122,10 @@ function! s:larval(val_type)
             normal! v
             call cursor(end_pos)
         else
-            " Copy the left part of the assignment
+            let lval_regex = s:substitute_lval_markers(b:larval_assignment_regex, a:val_type)
+            call search(lval_regex, 'c')
             normal! v
-            call search(b:larval_assignment_regex, 'eW')
-            let saved_unnamed_register = @@
-            normal! y
-            let assignment = @@
-            let @@ = saved_unnamed_register
-            " Pull out the value we're interested in
-            let value = '\V' . escape(substitute(assignment, b:larval_assignment_regex, '\'.a:val_type, ''), '\')
-            let value = substitute(value, '\n', '\\n', 'g')
-            " Visually select the value
-            if search(value, 'c')
-                normal! v
-                call search(value, 'ce')
-            endif
+            call search(lval_regex, 'ce')
         endif
     endif
 endfunction
@@ -173,14 +182,14 @@ function! s:inside_bounds(pos, bounds)
     endif
 endfunction
 
-onoremap <silent> <Plug>LarvalAroundLval :<C-u>call <SID>larval(1)<CR>
-xnoremap <silent> <Plug>LarvalAroundLval :<C-u>call <SID>larval(1)<CR>
-onoremap <silent> <Plug>LarvalInnerLval  :<C-u>call <SID>larval(2)<CR>
-xnoremap <silent> <Plug>LarvalInnerLval  :<C-u>call <SID>larval(2)<CR>
-onoremap <silent> <Plug>LarvalAroundRval :<C-u>call <SID>larval(3)<CR>
-xnoremap <silent> <Plug>LarvalAroundRval :<C-u>call <SID>larval(3)<CR>
-onoremap <silent> <Plug>LarvalInnerRval  :<C-u>call <SID>larval(4)<CR>
-xnoremap <silent> <Plug>LarvalInnerRval  :<C-u>call <SID>larval(4)<CR>
+onoremap <silent> <Plug>LarvalAroundLval :<C-u>call <SID>larval('al')<CR>
+xnoremap <silent> <Plug>LarvalAroundLval :<C-u>call <SID>larval('al')<CR>
+onoremap <silent> <Plug>LarvalInnerLval  :<C-u>call <SID>larval('il')<CR>
+xnoremap <silent> <Plug>LarvalInnerLval  :<C-u>call <SID>larval('il')<CR>
+onoremap <silent> <Plug>LarvalAroundRval :<C-u>call <SID>larval('ar')<CR>
+xnoremap <silent> <Plug>LarvalAroundRval :<C-u>call <SID>larval('ar')<CR>
+onoremap <silent> <Plug>LarvalInnerRval  :<C-u>call <SID>larval('ir')<CR>
+xnoremap <silent> <Plug>LarvalInnerRval  :<C-u>call <SID>larval('ir')<CR>
 
 function! s:create_maps(plug_around, plug_inner, is_lval)
     if !(hasmapto(a:plug_around, 'ov') || hasmapto(a:plug_inner, 'ov'))
